@@ -406,6 +406,40 @@ app.get('/health', (req, res) => {
   });
 });
 
+// VS Code style update endpoint (used by Dropstone app)
+app.get('/dropstone-backup-server-api/update/:platform/:quality/:version', (req, res) => {
+  const { platform, quality, version } = req.params;
+
+  console.log(`VS Code update check: platform=${platform}, quality=${quality}, version=${version}`);
+
+  // Get the latest version for this platform/quality
+  const latestKey = `${platform}-${quality}`;
+  const latest = updates.latest.get(latestKey);
+
+  if (!latest) {
+    console.log('No updates available - returning 204');
+    return res.status(204).send(); // No Content - means no update available
+  }
+
+  // Check if the current version is already the latest
+  if (latest.version === version) {
+    console.log('Version is up to date - returning 204');
+    return res.status(204).send(); // No Content - means no update available
+  }
+
+  // Return the update information
+  const updateInfo = {
+    version: latest.version,
+    productVersion: latest.version,
+    timestamp: latest.timestamp,
+    url: latest.url,
+    sha256hash: latest.sha256hash
+  };
+
+  console.log('Update available, returning:', updateInfo);
+  res.json(updateInfo);
+});
+
 // Dropstone backup server API endpoint (matches product.json)
 app.get('/dropstone-backup-server-api', (req, res) => {
   res.json({
@@ -415,7 +449,8 @@ app.get('/dropstone-backup-server-api', (req, res) => {
       latest: '/api/latest/:platform/:quality',
       version: '/api/versions/:version/:platform/:quality',
       download: '/commit::commit/:platform/:quality',
-      health: '/health'
+      health: '/health',
+      vscode_update: '/update/:platform/:quality/:version'
     }
   });
 });
