@@ -230,6 +230,11 @@ app.post('/admin/upload', upload.single('file'), async (req, res) => {
     const versionKey = `${platform}-${quality}-${version}`;
     updates.versions.set(versionKey, versionData);
 
+    // Also set the -archive version key if not already present
+    const archivePlatform = platform.endsWith('-archive') ? platform : `${platform}-archive`;
+    const archiveVersionKey = `${archivePlatform}-${quality}-${version}`;
+    updates.versions.set(archiveVersionKey, versionData);
+
     // Create download data
     const downloadData = {
       filename: externalUrl ? 'external-url' : path.basename(finalPath),
@@ -239,13 +244,21 @@ app.post('/admin/upload', upload.single('file'), async (req, res) => {
       externalUrl: externalUrl || null
     };
     updates.downloads.set(downloadKey, downloadData);
+    // Also set the -archive download key
+    const archiveDownloadKey = generateDownloadKey(archivePlatform, quality, version);
+    updates.downloads.set(archiveDownloadKey, downloadData);
 
     // Update latest if this is newer
     const latestKey = `${platform}-${quality}`;
     const currentLatest = updates.latest.get(latestKey);
-
     if (!currentLatest || version > currentLatest.version) {
       updates.latest.set(latestKey, versionData);
+    }
+    // Also update the -archive latest key
+    const archiveLatestKey = `${archivePlatform}-${quality}`;
+    const currentArchiveLatest = updates.latest.get(archiveLatestKey);
+    if (!currentArchiveLatest || version > currentArchiveLatest.version) {
+      updates.latest.set(archiveLatestKey, versionData);
     }
 
     saveUpdateData();
@@ -395,14 +408,35 @@ app.delete('/admin/versions/:platform/:quality/:version', (req, res) => {
   res.json({ success: true, message: 'Version deleted successfully' });
 });
 
-// Health check
+// Health check endpoint
 app.get('/health', (req, res) => {
+  console.log('[Dropstone] Health check requested');
   res.json({
-    status: 'healthy',
+    status: 'ok',
     timestamp: new Date().toISOString(),
-    versions: updates.versions.size,
-    latest: updates.latest.size,
-    downloads: updates.downloads.size
+    server: 'Dropstone Update Server',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      latest: '/api/latest/:platform/:quality',
+      update: '/dropstone-backup-server-api/update/:platform/:quality/:version',
+      admin: {
+        versions: '/admin/versions',
+        latest: '/admin/latest',
+        upload: '/admin/upload',
+        addExternal: '/admin/add-external'
+      }
+    }
+  });
+});
+
+// Health check endpoint (alternative)
+app.get('/dropstone-backup-server-api/health', (req, res) => {
+  console.log('[Dropstone] Dropstone health check requested');
+  res.json({
+    status: 'ok',
+    server: 'Dropstone Update Server',
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -410,20 +444,25 @@ app.get('/health', (req, res) => {
 app.get('/dropstone-backup-server-api/update/:platform/:quality/:version', (req, res) => {
   const { platform, quality, version } = req.params;
 
-  console.log(`VS Code update check: platform=${platform}, quality=${quality}, version=${version}`);
+  console.log(`[Dropstone] VS Code update check: platform=${platform}, quality=${quality}, version=${version}`);
+  console.log(`[Dropstone] Request URL: ${req.url}`);
+  console.log(`[Dropstone] User-Agent: ${req.get('User-Agent')}`);
 
   // Get the latest version for this platform/quality
   const latestKey = `${platform}-${quality}`;
   const latest = updates.latest.get(latestKey);
 
+  console.log(`[Dropstone] Latest key: ${latestKey}`);
+  console.log(`[Dropstone] Latest version data:`, latest);
+
   if (!latest) {
-    console.log('No updates available - returning 204');
+    console.log('[Dropstone] No updates available - returning 204');
     return res.status(204).send(); // No Content - means no update available
   }
 
   // Check if the current version is already the latest
   if (latest.version === version) {
-    console.log('Version is up to date - returning 204');
+    console.log(`[Dropstone] Version is up to date (${version}) - returning 204`);
     return res.status(204).send(); // No Content - means no update available
   }
 
@@ -436,7 +475,7 @@ app.get('/dropstone-backup-server-api/update/:platform/:quality/:version', (req,
     sha256hash: latest.sha256hash
   };
 
-  console.log('Update available, returning:', updateInfo);
+  console.log('[Dropstone] Update available, returning:', updateInfo);
   res.json(updateInfo);
 });
 
